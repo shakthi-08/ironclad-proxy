@@ -17,7 +17,7 @@ export type TelemetrySnapshot = {
   source: "python-daemon" | "simulation";
 };
 
-const simulation: TelemetrySnapshot = {
+export const simulation: TelemetrySnapshot = {
   isFrozen: false,
   rollingOutflowUsd: 100000,
   velocityLimitUsd: 1000000,
@@ -34,27 +34,9 @@ const simulation: TelemetrySnapshot = {
   ]
 };
 
-export async function readTelemetry(): Promise<TelemetrySnapshot> {
-  const baseUrl = process.env.IRONCLAD_PROXY_API_URL;
-  if (!baseUrl) return simulation;
-
-  const response = await fetch(`${baseUrl}/telemetry`, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(2500)
-  });
-  if (!response.ok) throw new Error(`Telemetry backend returned ${response.status}`);
-  return (await response.json()) as TelemetrySnapshot;
-}
-
-export async function requestLockdown(): Promise<void> {
-  const baseUrl = process.env.IRONCLAD_PROXY_API_URL;
-  if (!baseUrl) {
-    throw new Error("IRONCLAD_PROXY_API_URL is not configured");
-  }
-  const response = await fetch(`${baseUrl}/lockdown`, {
-    method: "POST",
-    cache: "no-store",
-    signal: AbortSignal.timeout(2500)
-  });
-  if (!response.ok) throw new Error(`Lockdown backend returned ${response.status}`);
+export function readTelemetry(): TelemetrySnapshot {
+  return {
+    ...simulation,
+    events: simulation.events.map((event) => ({ ...event })),
+  };
 }

@@ -1,6 +1,12 @@
 from decimal import Decimal
 
-from ironclad_proxy.daemon import Decision, IroncladProxy, Transaction
+from ironclad_proxy.daemon import (
+    AdvancedCalldataInspector,
+    Decision,
+    IroncladProxy,
+    SecureTelemetryBridge,
+    Transaction,
+)
 from ironclad_proxy.rules import ProxyConfig, VelocityConfig, load_config
 
 
@@ -61,3 +67,26 @@ def test_expired_outflow_is_removed():
     assert proxy.inspect(Transaction("0xa9059cbb", "100")) is Decision.ACCEPT
     now[0] = 61
     assert proxy.inspect(Transaction("0xa9059cbb", "1")) is Decision.ACCEPT
+
+
+def test_advanced_inspector_detects_authorization_and_high_risk_selectors():
+    inspector = AdvancedCalldataInspector()
+    assert inspector.scan("0xa9059cbb" + "00" * 4 + "ef0100" + "00" * 8) == (
+        "0xef0100",
+    )
+    assert inspector.inspect("0xd505accf" + "00" * 32) == ("0xd505accf",)
+    assert inspector.scan("0xa22cb465" + "00" * 32) == ("0xa22cb465",)
+
+
+def test_proxy_rejects_high_risk_calldata_even_when_selector_is_allowed():
+    proxy = make_proxy()
+    transaction = Transaction("0xa9059cbb" + "00" * 4 + "ef0100" + "00" * 8)
+    assert proxy.inspect(transaction) is Decision.REJECT
+    assert proxy.is_frozen
+
+
+def test_secure_telemetry_bridge_signs_canonical_payload():
+    bridge = SecureTelemetryBridge("test-secret")
+    payload = {"isFrozen": False, "source": "python-daemon"}
+    assert bridge.sign(payload) == bridge.sign_payload(payload)
+    assert len(bridge.sign(payload)) == 64

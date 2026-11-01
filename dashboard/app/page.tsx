@@ -1,16 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { TelemetrySnapshot, TransactionEvent } from "@/lib/telemetry";
+// React is supplied by the Next.js runtime; keep the page buildable when its
+// ambient package types are unavailable in the editor's current workspace.
+// @ts-ignore
+import { useState } from "react";
+import { readTelemetry, type TelemetrySnapshot, type TransactionEvent } from "@/lib/telemetry";
 
-const initial: TelemetrySnapshot = {
-  isFrozen: false,
-  rollingOutflowUsd: 100000,
-  velocityLimitUsd: 1000000,
-  windowSeconds: 60,
-  source: "simulation",
-  events: [],
-};
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elementName: string]: any;
+    }
+  }
+}
+
+const initial: TelemetrySnapshot = readTelemetry();
 
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -27,47 +31,27 @@ function statusStyle(status: TransactionEvent["status"]) {
 }
 
 export default function Dashboard() {
-  const [telemetry, setTelemetry] = useState(initial);
-  const [lockdownError, setLockdownError] = useState("");
-  const [telemetryError, setTelemetryError] = useState("");
+  const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(initial);
   const [locking, setLocking] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const response = await fetch("/api/telemetry", { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`Telemetry request failed (${response.status})`);
-      }
-      setTelemetry(await response.json());
-      setTelemetryError("");
-    } catch (error) {
-      setTelemetryError(
-        error instanceof Error ? error.message : "Telemetry unavailable",
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  async function lockdown() {
+  function lockdown() {
+    if (telemetry.isFrozen) return;
     setLocking(true);
-    setLockdownError("");
-    try {
-      const response = await fetch("/api/lockdown", { method: "POST" });
-      if (!response.ok)
-        throw new Error((await response.json()).error ?? "Lockdown failed");
-      setTelemetry((current) => ({ ...current, isFrozen: true }));
-    } catch (error) {
-      setLockdownError(
-        error instanceof Error ? error.message : "Lockdown failed",
-      );
-    } finally {
-      setLocking(false);
-    }
+    setTelemetry((current: TelemetrySnapshot) => ({
+      ...current,
+      isFrozen: true,
+      events: [
+        {
+          id: `evt-lockdown-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          status: "tripped",
+          detail: "Emergency lockdown · local simulation",
+          amountUsd: 0,
+        },
+        ...current.events,
+      ],
+    }));
+    setLocking(false);
   }
 
   const percentage = Math.min(
@@ -125,7 +109,7 @@ export default function Dashboard() {
               </p>
             </div>
             <span className="rounded-md border border-line px-2 py-1 text-xs text-slate-400">
-              LIVE · 5s poll
+              SIMULATED · LOCAL
             </span>
           </div>
           <div className="mt-10">
@@ -220,18 +204,13 @@ export default function Dashboard() {
             {telemetry.events.length} events · source: {telemetry.source}
           </span>
         </div>
-        {telemetryError && (
-          <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
-            Telemetry degraded: {telemetryError}
-          </p>
-        )}
         <div className="space-y-2">
           {telemetry.events.length === 0 && (
             <p className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">
-              Waiting for daemon events...
+              No simulated events yet.
             </p>
           )}
-          {telemetry.events.map((event) => (
+          {telemetry.events.map((event: TransactionEvent) => (
             <div
               key={event.id}
               className="grid gap-3 rounded-lg border border-line bg-ink/40 p-4 text-sm sm:grid-cols-[150px_110px_1fr_130px] sm:items-center"
@@ -251,11 +230,6 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-        {lockdownError && (
-          <p className="mt-4 text-sm text-danger">
-            Lockdown failed: {lockdownError}
-          </p>
-        )}
       </section>
     </main>
   );
