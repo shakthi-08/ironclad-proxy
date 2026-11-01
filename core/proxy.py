@@ -32,6 +32,15 @@ class Transaction:
 
 
 @dataclass(frozen=True)
+class ProxyEvent:
+    id: str
+    timestamp: str
+    status: str
+    detail: str
+    amount_usd: float
+
+
+@dataclass(frozen=True)
 class ProxyRules:
     allowed_method_signatures: frozenset[str]
     blocked_transaction_types: frozenset[str]
@@ -67,6 +76,7 @@ class IroncladProxy:
         self.rules = rules
         self._clock = clock
         self._outflows: deque[tuple[float, Decimal]] = deque()
+        self._events: deque[ProxyEvent] = deque(maxlen=100)
         self._lock = RLock()
         self.is_frozen = False
 
@@ -75,6 +85,7 @@ class IroncladProxy:
         tx = _coerce_transaction(transaction)
         with self._lock:
             if self.is_frozen:
+                self._record("tripped", "Circuit breaker locked; transaction dropped", 0)
                 LOGGER.warning("DROP | circuit breaker locked; transaction rejected")
                 return Decision.DROPPED
 
@@ -105,13 +116,46 @@ class IroncladProxy:
                     f"${self.rules.max_outflow_usd} limit"
                 )
             self._outflows.append((now, amount))
+            self._record("accepted", f"ERC-20 transfer · {signature}", amount)
             LOGGER.info("ALLOW | method=%s amount_usd=%s", signature, amount)
             return Decision.ACCEPTED
 
+    def lockdown(self) -> None:
+        """Trip the global freeze from an operator control or API adapter."""
+        with self._lock:
+            if not self.is_frozen:
+                self._freeze("MANUAL | operator emergency lockdown")
+
+    def telemetry_snapshot(self) -> dict[str, object]:
+        """Return the JSON-shaped state expected by the SOC dashboard adapter."""
+        with self._lock:
+            now = self._clock()
+            self._prune(now)
+            return {
+                "isFrozen": self.is_frozen,
+                "rollingOutflowUsd": float(sum(value for _, value in self._outflows)),
+                "velocityLimitUsd": float(self.rules.max_outflow_usd),
+                "windowSeconds": self.rules.window_seconds,
+                "events": [event.__dict__ for event in self._events],
+                "source": "python-daemon",
+            }
+
     def _freeze(self, message: str, error: Exception | None = None) -> Decision:
         self.is_frozen = True
+        self._record("blocked" if "BLOCK" in message else "tripped", message, 0)
         LOGGER.error("EMERGENCY FREEZE | %s%s", message, f": {error}" if error else "")
         return Decision.REJECTED
+
+    def _record(self, status: str, detail: str, amount: Decimal | int | float) -> None:
+        self._events.append(
+            ProxyEvent(
+                id=f"evt-{time.time_ns()}",
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                status=status,
+                detail=detail,
+                amount_usd=float(amount),
+            )
+        )
 
     def _prune(self, now: float) -> None:
         cutoff = now - self.rules.window_seconds
