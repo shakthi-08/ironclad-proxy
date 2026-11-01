@@ -1,0 +1,12 @@
+{
+  "allowed_method_signatures": [
+    "0xa9059cbb"
+  ],
+  "blocked_transaction_types": [
+    "0x04"
+  ],
+  "velocity": {
+    "limit_usd": "1000000",
+    "window_seconds": 60
+  }
+}
