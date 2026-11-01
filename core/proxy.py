@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Callable, Mapping
+from typing import Any, Callable
 
 LOGGER = logging.getLogger("ironclad_proxy")
 
@@ -27,7 +27,7 @@ class Transaction:
     """Fields required before a transaction may be executed."""
 
     data: str
-    value_usd: Decimal | int | float | str
+    value_usd: Decimal | int | float | str = Decimal("0")
     tx_type: int | str = 0
 
 
@@ -37,7 +37,7 @@ class ProxyEvent:
     timestamp: str
     status: str
     detail: str
-    amount_usd: float
+    amountUsd: float
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ class IroncladProxy:
         self._lock = RLock()
         self.is_frozen = False
 
-    def inspect(self, transaction: Transaction | Mapping[str, object]) -> Decision:
+    def inspect(self, transaction: Transaction | dict[str, Any]) -> Decision:
         """Parse and inspect a transaction before execution."""
         tx = _coerce_transaction(transaction)
         with self._lock:
@@ -153,7 +153,7 @@ class IroncladProxy:
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 status=status,
                 detail=detail,
-                amount_usd=float(amount),
+                amountUsd=float(amount),
             )
         )
 
@@ -172,13 +172,13 @@ def configure_logging() -> None:
     )
 
 
-def _coerce_transaction(transaction: Transaction | Mapping[str, object]) -> Transaction:
+def _coerce_transaction(transaction: Transaction | dict[str, Any]) -> Transaction:
     if isinstance(transaction, Transaction):
         return transaction
     try:
         return Transaction(
             data=str(transaction["data"]),
-            value_usd=transaction["value_usd"],
+            value_usd=transaction.get("value_usd", Decimal("0")),
             tx_type=transaction.get("tx_type", 0),
         )
     except (KeyError, TypeError) as exc:
@@ -197,9 +197,15 @@ def _method_signature(data: object) -> str | None:
 
 
 def _transaction_type(value: object) -> str:
+    if isinstance(value, bool):
+        return ""
     if isinstance(value, int):
-        return f"0x{value:02x}"
+        return f"0x{value:x}" if value >= 0 else ""
     if isinstance(value, str):
         normalized = value.lower()
-        return normalized if normalized.startswith("0x") else f"0x{int(normalized):02x}"
+        try:
+            number = int(normalized, 16 if normalized.startswith("0x") else 10)
+        except ValueError:
+            return ""
+        return f"0x{number:x}" if number >= 0 else ""
     return ""

@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server";
 import { readTelemetry } from "@/lib/telemetry";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    return NextResponse.json(await readTelemetry());
+    return Response.json(await readTelemetry());
   } catch (error) {
     const message = error instanceof Error ? error.message : "Telemetry unavailable";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return Response.json({ error: message }, { status: 502 });
   }
 }

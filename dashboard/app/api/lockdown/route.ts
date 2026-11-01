@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requestLockdown } from "@/lib/telemetry";
 
+export const runtime = "nodejs";
+
 export async function POST() {
   try {
     await requestLockdown();

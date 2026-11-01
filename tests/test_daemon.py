@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from ironclad_proxy.daemon import Decision, IroncladProxy, Transaction
-from ironclad_proxy.rules import ProxyConfig, VelocityConfig
+from ironclad_proxy.rules import ProxyConfig, VelocityConfig, load_config
 
 
 def make_proxy(clock=lambda: 0.0, limit="1000000", window=60):
@@ -23,6 +23,20 @@ def test_rejects_delegation_and_drops_following_transactions():
     assert proxy.inspect(Transaction("0xa9059cbb", tx_type=4)) is Decision.REJECT
     assert proxy.is_frozen
     assert proxy.inspect(Transaction("0xa9059cbb")) is Decision.DROPPED
+
+
+def test_rejects_padded_and_unpadded_delegation_types():
+    for tx_type in ("0x04", "0x4", 4):
+        proxy = make_proxy()
+        assert proxy.inspect(Transaction("0xa9059cbb", tx_type=tx_type)) is Decision.REJECT
+        assert proxy.is_frozen
+
+
+def test_loads_and_enforces_configured_blocked_types():
+    config = load_config("config/rules.json")
+    assert config.blocked_transaction_types == frozenset({"0x4"})
+    proxy = IroncladProxy(config)
+    assert proxy.inspect(Transaction("0xa9059cbb", tx_type="0x04")) is Decision.REJECT
 
 
 def test_rejects_unknown_method_and_freezes():

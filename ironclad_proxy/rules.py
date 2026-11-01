@@ -19,6 +19,7 @@ class VelocityConfig:
 class ProxyConfig:
     allowed_method_signatures: frozenset[str]
     velocity: VelocityConfig = VelocityConfig()
+    blocked_transaction_types: frozenset[str] = frozenset({"0x4"})
 
 
 def _signature(value: Any) -> str:
@@ -44,6 +45,27 @@ def _decimal(value: Any, field: str) -> Decimal:
     return result
 
 
+def normalize_transaction_type(value: Any) -> str:
+    """Normalize numeric and hexadecimal transaction types to canonical hex."""
+    if isinstance(value, bool):
+        raise ValueError("transaction types must be integers or strings")
+    try:
+        if isinstance(value, int):
+            number = value
+        elif isinstance(value, str):
+            text = value.strip().lower()
+            if not text:
+                raise ValueError("transaction type cannot be empty")
+            number = int(text, 16 if text.startswith("0x") else 10)
+        else:
+            raise ValueError("transaction types must be integers or strings")
+    except ValueError as exc:
+        raise ValueError(f"invalid transaction type: {value!r}") from exc
+    if number < 0:
+        raise ValueError("transaction type cannot be negative")
+    return f"0x{number:x}"
+
+
 def load_config(path: str | Path) -> ProxyConfig:
     """Load and validate the JSON security rules file."""
     config_path = Path(path)
@@ -58,6 +80,9 @@ def load_config(path: str | Path) -> ProxyConfig:
     velocity = raw.get("velocity", {})
     if not isinstance(velocity, dict):
         raise ValueError("velocity must be an object")
+    blocked_types = raw.get("blocked_transaction_types")
+    if not isinstance(blocked_types, list) or not blocked_types:
+        raise ValueError("blocked_transaction_types must be a non-empty list")
     limit = _decimal(velocity.get("limit_usd", "1000000"), "limit_usd")
     window = float(velocity.get("window_seconds", 60))
     if window <= 0:
@@ -66,4 +91,7 @@ def load_config(path: str | Path) -> ProxyConfig:
     return ProxyConfig(
         allowed_method_signatures=frozenset(_signature(item) for item in signatures),
         velocity=VelocityConfig(limit_usd=limit, window_seconds=window),
+        blocked_transaction_types=frozenset(
+            normalize_transaction_type(item) for item in blocked_types
+        ),
     )

@@ -11,7 +11,7 @@ from enum import Enum
 from threading import RLock
 from typing import Callable
 
-from .rules import ProxyConfig
+from .rules import ProxyConfig, normalize_transaction_type
 
 LOGGER = logging.getLogger("ironclad_proxy")
 
@@ -62,8 +62,12 @@ class IroncladProxy:
                 LOGGER.warning("transaction dropped: emergency freeze is active")
                 return Decision.DROPPED
 
-            if self._is_delegation(transaction.tx_type):
-                return self._freeze("EIP-7702 set-code delegation (type 0x04)")
+            try:
+                tx_type = normalize_transaction_type(transaction.tx_type)
+            except ValueError as exc:
+                return self._freeze("malformed transaction type", exc)
+            if tx_type in self.config.blocked_transaction_types:
+                return self._freeze(f"blocked transaction type {tx_type}")
 
             signature = self._method_signature(transaction.data)
             if signature is None:
@@ -99,12 +103,6 @@ class IroncladProxy:
         cutoff = now - self.config.velocity.window_seconds
         while self._outflows and self._outflows[0][0] <= cutoff:
             self._outflows.popleft()
-
-    @staticmethod
-    def _is_delegation(tx_type: int | str) -> bool:
-        if isinstance(tx_type, int):
-            return tx_type == 4
-        return isinstance(tx_type, str) and tx_type.lower().removeprefix("0x") == "04"
 
     @staticmethod
     def _method_signature(data: str) -> str | None:
