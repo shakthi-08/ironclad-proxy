@@ -6,6 +6,8 @@ kill-switch to `/api/lockdown`.
 
 ## Connecting the Python daemon
 
+
+
 Set `IRONCLAD_PROXY_API_URL` in the dashboard environment to the base URL of a
 small daemon adapter that exposes:
 
@@ -27,3 +29,5 @@ npm run dev
 ```
 
 <!-- build trigger -->
+
+
